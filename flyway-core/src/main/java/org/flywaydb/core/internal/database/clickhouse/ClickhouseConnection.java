@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.flywaydb.core.internal.database.clickhouse;
 
-import org.flywaydb.core.api.configuration.Configuration;
 import org.flywaydb.core.internal.database.base.Connection;
 import org.flywaydb.core.internal.database.base.Schema;
 
@@ -25,11 +24,8 @@ import java.sql.SQLException;
  * Clickhouse connection.
  */
 public class ClickhouseConnection extends Connection<ClickhouseDatabase> {
-    ClickhouseConnection(Configuration configuration, ClickhouseDatabase database, java.sql.Connection connection
-            , boolean originalAutoCommit
-    ) {
-        super(configuration, database, connection, originalAutoCommit
-        );
+    ClickhouseConnection(ClickhouseDatabase database, java.sql.Connection connection) {
+        super(database, connection);
     }
 
     @Override

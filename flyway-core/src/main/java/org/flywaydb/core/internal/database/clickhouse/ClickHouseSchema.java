@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2017 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import java.util.List;
 /**
  * ClickHouse implementation of Schema.
  */
-public class ClickHouseSchema extends Schema<ClickhouseDatabase> {
+public class ClickHouseSchema extends Schema<ClickhouseDatabase, ClickHouseTable> {
 
     /**
      * Creates a new schema.
@@ -68,9 +68,9 @@ public class ClickHouseSchema extends Schema<ClickhouseDatabase> {
     }
 
     @Override
-    protected Table[] doAllTables() throws SQLException {
+    protected ClickHouseTable[] doAllTables() throws SQLException {
         List<String> tableNames = jdbcTemplate.queryForStringList("SELECT name FROM system.tables WHERE database = ?", name);
-        Table[] result = new Table[tableNames.size()];
+        ClickHouseTable[] result = new ClickHouseTable[tableNames.size()];
         for (int i = 0; i < tableNames.size(); i++)
             result[i] = new ClickHouseTable(jdbcTemplate, database, this, tableNames.get(i));
         return result;

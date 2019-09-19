@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,33 +17,27 @@ package org.flywaydb.core.internal.database.clickhouse;
 
 import org.flywaydb.core.api.configuration.Configuration;
 import org.flywaydb.core.internal.database.base.Database;
-import org.flywaydb.core.internal.database.hsqldb.HSQLDBConnection;
-import org.flywaydb.core.internal.database.hsqldb.HSQLDBSqlStatementBuilder;
-import org.flywaydb.core.internal.exception.FlywayDbUpgradeRequiredException;
-import org.flywaydb.core.internal.placeholder.PlaceholderReplacer;
-import org.flywaydb.core.internal.sqlscript.AbstractSqlStatementBuilderFactory;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilder;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilderFactory;
+import org.flywaydb.core.internal.database.base.Table;
+import org.flywaydb.core.internal.jdbc.JdbcConnectionFactory;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 
 /**
- * HSQLDB database.
+ * ClickHouse database.
  */
 public class ClickhouseDatabase extends Database<ClickhouseConnection> {
     /**
      * Creates a new instance.
      *
      * @param configuration The Flyway configuration.
-     * @param connection    The connection to use.
      */
-    public ClickhouseDatabase(Configuration configuration, Connection connection, boolean originalAutoCommit
+    public ClickhouseDatabase(Configuration configuration, JdbcConnectionFactory jdbcConnectionFactory
 
 
 
     ) {
-        super(configuration, connection, originalAutoCommit
+        super(configuration, jdbcConnectionFactory
 
 
 
@@ -51,16 +45,12 @@ public class ClickhouseDatabase extends Database<ClickhouseConnection> {
     }
 
     @Override
-    protected ClickhouseConnection getConnection(Connection connection
+    protected ClickhouseConnection doGetConnection(Connection connection
 
 
 
     ) {
-        return new ClickhouseConnection(configuration, this, connection, originalAutoCommit
-
-
-
-        );
+        return new ClickhouseConnection(this, connection);
     }
 
     @Override
@@ -71,20 +61,6 @@ public class ClickhouseDatabase extends Database<ClickhouseConnection> {
 
     @Override
     public final void ensureSupported() {
-    }
-
-    @Override
-    protected SqlStatementBuilderFactory createSqlStatementBuilderFactory(PlaceholderReplacer placeholderReplacer
-
-
-
-    ) {
-        return new ClickhouseSqlStatementBuilderFactory(placeholderReplacer);
-    }
-
-    @Override
-    public String getDbName() {
-        return "clickhouse";
     }
 
     @Override
@@ -122,14 +98,20 @@ public class ClickhouseDatabase extends Database<ClickhouseConnection> {
         return true;
     }
 
-    private static class ClickhouseSqlStatementBuilderFactory extends AbstractSqlStatementBuilderFactory {
-        public ClickhouseSqlStatementBuilderFactory(PlaceholderReplacer placeholderReplacer) {
-            super(placeholderReplacer);
-        }
-
-        @Override
-        public SqlStatementBuilder createSqlStatementBuilder() {
-            return new ClickhouseStatementBuilder();
-        }
+    @Override
+    public String getRawCreateScript(Table table, boolean baseline) {
+        return "CREATE TABLE " + table + " (\n" +
+                "    installed_rank Int32,\n" +
+                "    version Nullable(String),\n" +
+                "    description String,\n" +
+                "    type String,\n" +
+                "    script String,\n" +
+                "    checksum Nullable(Int32),\n" +
+                "    installed_by Nullable(String),\n" +
+                "    installed_on DateTime,\n" +
+                "    execution_time Int32,\n" +
+                "    success UInt8\n" +
+                ") ENGINE = TinyLog;\n" +
+                (baseline ? getBaselineStatement(table) + ";\n" : "");
     }
 }
