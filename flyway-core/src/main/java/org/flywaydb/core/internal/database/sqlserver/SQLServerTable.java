@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
  */
 package org.flywaydb.core.internal.database.sqlserver;
 
-import org.flywaydb.core.internal.database.base.Database;
-import org.flywaydb.core.internal.database.base.Schema;
 import org.flywaydb.core.internal.database.base.Table;
 import org.flywaydb.core.internal.jdbc.JdbcTemplate;
 
@@ -25,7 +23,7 @@ import java.sql.SQLException;
 /**
  * SQLServer-specific table.
  */
-public class SQLServerTable extends Table {
+public class SQLServerTable extends Table<SQLServerDatabase, SQLServerSchema> {
     private final String databaseName;
 
     /**
@@ -37,7 +35,7 @@ public class SQLServerTable extends Table {
      * @param schema       The schema this table lives in.
      * @param name         The name of the table.
      */
-    SQLServerTable(JdbcTemplate jdbcTemplate, Database database, String databaseName, Schema schema, String name) {
+    SQLServerTable(JdbcTemplate jdbcTemplate, SQLServerDatabase database, String databaseName, SQLServerSchema schema, String name) {
         super(jdbcTemplate, database, schema, name);
         this.databaseName = databaseName;
     }
@@ -63,6 +61,15 @@ public class SQLServerTable extends Table {
     @Override
     protected void doLock() throws SQLException {
         jdbcTemplate.execute("select * from " + this + " WITH (TABLOCKX)");
+    }
+
+    /**
+     * Drops system versioning for this table if it is active.
+     */
+    void dropSystemVersioningIfPresent() throws SQLException {
+        if (jdbcTemplate.queryForInt("SELECT temporal_type FROM sys.tables WHERE object_id = OBJECT_ID('" + this + "', 'U')") == 2) {
+            jdbcTemplate.execute("ALTER TABLE " + this + " SET (SYSTEM_VERSIONING = OFF)");
+        }
     }
 
     @Override

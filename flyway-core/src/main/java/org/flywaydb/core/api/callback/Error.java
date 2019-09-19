@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,4 +34,20 @@ public interface Error {
      * @return The error message.
      */
     String getMessage();
+
+    /**
+     * Checks whether this error has already been handled.
+     *
+     * @return {@code true} {@code true} if this error has already be handled or {@code false} if it should flow
+     * via the default error handler.
+     */
+    boolean isHandled();
+
+    /**
+     * Sets whether this error has already been handled.
+     *
+     * @param handled {@code true} if this error has already be handled or {@code false} if it should flow via the
+     *                default error handler.
+     */
+    void setHandled(boolean handled);
 }

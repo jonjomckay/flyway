@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package org.flywaydb.core.api.configuration;
 import org.flywaydb.core.api.Location;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.callback.Callback;
-import org.flywaydb.core.api.errorhandler.ErrorHandler;
+import org.flywaydb.core.api.migration.JavaMigration;
 import org.flywaydb.core.api.resolver.MigrationResolver;
 
 import javax.sql.DataSource;
@@ -153,6 +153,16 @@ public interface Configuration {
     String[] getSqlMigrationSuffixes();
 
     /**
+     * The manually added Java-based migrations. These are not Java-based migrations discovered through classpath
+     * scanning and instantiated by Flyway. Instead these are manually added instances of JavaMigration.
+     * This is particularly useful when working with a dependency injection container, where you may want the DI
+     * container to instantiate the class and wire up its dependencies for you.
+     *
+     * @return The manually added Java-based migrations. An empty array if none. (default: none)
+     */
+    JavaMigration[] getJavaMigrations();
+
+    /**
      * Checks whether placeholders should be replaced.
      *
      * @return Whether placeholders should be replaced. (default: true)
@@ -181,34 +191,49 @@ public interface Configuration {
     Map<String, String> getPlaceholders();
 
     /**
-     * Retrieves the target version up to which Flyway should consider migrations.
-     * Migrations with a higher version number will be ignored.
-     * The special value {@code current} designates the current version of the schema.
-     *
-     * @return The target version up to which Flyway should consider migrations. (default: the latest version)
+     * Gets the target version up to which Flyway should consider migrations.
+     * Migrations with a higher version number will be ignored. 
+     * Special values:
+     * <ul>
+     * <li>{@code current}: designates the current version of the schema</li>
+     * <li>{@code latest}: the latest version of the schema, as defined by the migration with the highest version</li>
+     * </ul>
+     * Defaults to {@code latest}.
+     * @return The target version up to which Flyway should consider migrations. Defaults to {@code latest}
      */
     MigrationVersion getTarget();
 
     /**
-     * <p>Retrieves the name of the schema schema history table that will be used by Flyway.</p><p> By default (single-schema
+     * <p>Retrieves the name of the schema history table that will be used by Flyway.</p><p> By default (single-schema
      * mode) the schema history table is placed in the default schema for the connection provided by the datasource. </p> <p>
      * When the <i>flyway.schemas</i> property is set (multi-schema mode), the schema history table is placed in the first
      * schema of the list. </p>
      *
-     * @return The name of the schema schema history table that will be used by flyway. (default: flyway_schema_history)
+     * @return The name of the schema history table that will be used by Flyway. (default: flyway_schema_history)
      */
     String getTable();
 
     /**
-     * Retrieves the schemas managed by Flyway.  These schema names are case-sensitive.
+     * <p>Retrieves the tablespace where to create the schema history table that will be used by Flyway.</p>
+     * <p>This setting is only relevant for databases that do support the notion of tablespaces. It's value is simply
+     * ignored for all others.</p>
+     *
+     * @return The tablespace where to create the schema history table that will be used by Flyway. (default: The default tablespace for the database connection)
+     */
+    String getTablespace();
+
+    /**
+     * Retrieves the schemas managed by Flyway. These schema names are case-sensitive.
      * <p>Consequences:</p>
      * <ul>
+     * <li>Flyway will automatically attempt to create all these schemas, unless the first one already exists.</li>
      * <li>The first schema in the list will be automatically set as the default one during the migration.</li>
      * <li>The first schema in the list will also be the one containing the schema history table.</li>
      * <li>The schemas will be cleaned in the order of this list.</li>
+     * <li>If Flyway created them, the schemas themselves will as be dropped when cleaning.</li>
      * </ul>
      *
-     * @return The schemas managed by Flyway. (default: The default schema for the datasource connection)
+     * @return The schemas managed by Flyway. (default: The default schema for the database connection)
      */
     String[] getSchemas();
 
@@ -321,7 +346,7 @@ public interface Configuration {
 
     /**
      * Whether to automatically call clean or not when a validation error occurs.
-     * <p> This is exclusively intended as a convenience for development. Even tough we
+     * <p> This is exclusively intended as a convenience for development. even though we
      * strongly recommend not to change migration scripts once they have been checked into SCM and run, this provides a
      * way of dealing with this case in a smooth manner. The database will be wiped clean automatically, ensuring that
      * the next migration will bring you back to the state checked into SCM.</p>
@@ -340,7 +365,14 @@ public interface Configuration {
     boolean isCleanDisabled();
 
     /**
-     * Whether to allow mixing transactional and non-transactional statements within the same migration.
+     * Whether to allow mixing transactional and non-transactional statements within the same migration. Enabling this
+     * automatically causes the entire affected migration to be run without a transaction.
+     *
+     * <p>Note that this is only applicable for PostgreSQL, Aurora PostgreSQL, SQL Server and SQLite which all have
+     * statements that do not run at all within a transaction.</p>
+     * <p>This is not to be confused with implicit transaction, as they occur in MySQL or Oracle, where even though a
+     * DDL statement was run within within a transaction, the database will issue an implicit commit before and after
+     * its execution.</p>
      *
      * @return {@code true} if mixed migrations should be allowed. {@code false} if an error should be thrown instead. (default: {@code false})
      */
@@ -361,27 +393,29 @@ public interface Configuration {
     String getInstalledBy();
 
     /**
-     * Handlers for errors and warnings that occur during a migration. This can be used to customize Flyway's behavior by for example
-     * throwing another runtime exception, outputting a warning or suppressing the error instead of throwing a FlywayException.
-     * ErrorHandlers are invoked in order until one reports to have successfully handled the errors or warnings.
-     * If none do, or if none are present, Flyway falls back to its default handling of errors and warnings.
-     * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
-     *
-     * @return The ErrorHandlers or an empty array if the default internal handler should be used instead. (default: none)
-     * @deprecated ErrorHandlers have been deprecated and will be removed in Flyway 6.0 use statement-level callbacks instead.
-     */
-    @Deprecated
-    ErrorHandler[] getErrorHandlers();
-
-    /**
-     * Rules for the built-in error handler that lets you override specific SQL states and errors codes from error
-     * to warning or from warning to error.
+     * Rules for the built-in error handler that let you override specific SQL states and errors codes in order to force
+     * specific errors or warnings to be treated as debug messages, info messages, warnings or errors.
      * <p>Each error override has the following format: {@code STATE:12345:W}.
-     * It is a 5 character SQL state, a colon, the SQL error code, a colon and finally the desired
-     * behavior that should override the initial one. The following behaviors are accepted: {@code W} to force a warning
-     * and {@code E} to force an error.</p>
-     * <p>For example, to force Oracle stored procedure compilation issues to produce
+     * It is a 5 character SQL state (or * to match all SQL states), a colon,
+     * the SQL error code (or * to match all SQL error codes), a colon and finally
+     * the desired behavior that should override the initial one.</p>
+     * <p>The following behaviors are accepted:</p>
+     * <ul>
+     * <li>{@code D} to force a debug message</li>
+     * <li>{@code D-} to force a debug message, but do not show the original sql state and error code</li>
+     * <li>{@code I} to force an info message</li>
+     * <li>{@code I-} to force an info message, but do not show the original sql state and error code</li>
+     * <li>{@code W} to force a warning</li>
+     * <li>{@code W-} to force a warning, but do not show the original sql state and error code</li>
+     * <li>{@code E} to force an error</li>
+     * <li>{@code E-} to force an error, but do not show the original sql state and error code</li>
+     * </ul>
+     * <p>Example 1: to force Oracle stored procedure compilation issues to produce
      * errors instead of warnings, the following errorOverride can be used: {@code 99999:17110:E}</p>
+     * <p>Example 2: to force SQL Server PRINT messages to be displayed as info messages (without SQL state and error
+     * code details) instead of warnings, the following errorOverride can be used: {@code S0001:0:I-}</p>
+     * <p>Example 3: to force all errors with SQL error code 123 to be treated as warnings instead,
+     * the following errorOverride can be used: {@code *:123:W}</p>
      * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
      *
      * @return The ErrorOverrides or an empty array if none are defined. (default: none)
@@ -429,11 +463,32 @@ public interface Configuration {
     boolean isOracleSqlplus();
 
     /**
-     * Flyway's license key.
+     * Whether Flyway should issue a warning instead of an error whenever it encounters an Oracle SQL*Plus statement
+     * it doesn't yet support.
      *
      * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
      *
-     * @return The license key.
+     * @return {@code true} to issue a warning. {@code false} to fail fast instead. (default: {@code false})
+     */
+    boolean isOracleSqlplusWarn();
+
+    /**
+     * Your Flyway license key (FL01...). Not yet a Flyway Pro or Enterprise Edition customer?
+     * Request your <a href="https://flywaydb.org/download/">Flyway trial license key</a>
+     * to try out Flyway Pro and Enterprise Edition features free for 30 days.
+     *
+     * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
+     *
+     * @return Your Flyway license key.
      */
     String getLicenseKey();
+
+    /**
+     * Whether Flyway should output a table with the results of queries when executing migrations.
+     *
+     * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
+     *
+     * @return {@code true} to output the results table (default: {@code true})
+     */
+    boolean outputQueryResults();
 }

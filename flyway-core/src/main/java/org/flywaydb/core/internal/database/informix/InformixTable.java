@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
  */
 package org.flywaydb.core.internal.database.informix;
 
-import org.flywaydb.core.internal.database.base.Database;
-import org.flywaydb.core.internal.database.base.Schema;
 import org.flywaydb.core.internal.database.base.Table;
 import org.flywaydb.core.internal.jdbc.JdbcTemplate;
 
@@ -25,7 +23,7 @@ import java.sql.SQLException;
 /**
  * Informix-specific table.
  */
-public class InformixTable extends Table {
+public class InformixTable extends Table<InformixDatabase, InformixSchema> {
     /**
      * Creates a new Informix table.
      *
@@ -34,7 +32,7 @@ public class InformixTable extends Table {
      * @param schema       The schema this table lives in.
      * @param name         The name of the table.
      */
-    InformixTable(JdbcTemplate jdbcTemplate, Database database, Schema schema, String name) {
+    InformixTable(JdbcTemplate jdbcTemplate, InformixDatabase database, InformixSchema schema, String name) {
         super(jdbcTemplate, database, schema, name);
     }
 
@@ -51,5 +49,10 @@ public class InformixTable extends Table {
     @Override
     protected void doLock() throws SQLException {
         jdbcTemplate.update("lock table " + this + " in exclusive mode");
+    }
+
+    @Override
+    public String toString() {
+        return name;
     }
 }

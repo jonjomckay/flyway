@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,7 +53,6 @@ public interface CallbackExecutor {
      * @param event The event to handle.
      */
     void onEachMigrateOrUndoEvent(Event event);
-
 
 
 

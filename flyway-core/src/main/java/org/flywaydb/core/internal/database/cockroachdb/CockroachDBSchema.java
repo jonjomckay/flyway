@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,12 @@ import java.util.List;
 /**
  * CockroachDB implementation of Schema.
  */
-public class CockroachDBSchema extends Schema<CockroachDBDatabase> {
+public class CockroachDBSchema extends Schema<CockroachDBDatabase, CockroachDBTable> {
+    /**
+     * Is this CockroachDB 1.x.
+     */
+    final boolean cockroachDB1;
+
     /**
      * Creates a new CockroachDB schema.
      *
@@ -36,6 +41,7 @@ public class CockroachDBSchema extends Schema<CockroachDBDatabase> {
      */
     CockroachDBSchema(JdbcTemplate jdbcTemplate, CockroachDBDatabase database, String name) {
         super(jdbcTemplate, database, name);
+        cockroachDB1 = !database.getVersion().isAtLeast("2");
     }
 
     @Override
@@ -45,7 +51,7 @@ public class CockroachDBSchema extends Schema<CockroachDBDatabase> {
 
     @Override
     protected boolean doEmpty() throws SQLException {
-        if (database.getMajorVersion() == 1) {
+        if (cockroachDB1) {
             return !jdbcTemplate.queryForBoolean("SELECT EXISTS (" +
                     "  SELECT 1" +
                     "  FROM information_schema.tables" +
@@ -131,9 +137,9 @@ public class CockroachDBSchema extends Schema<CockroachDBDatabase> {
     }
 
     @Override
-    protected Table[] doAllTables() throws SQLException {
+    protected CockroachDBTable[] doAllTables() throws SQLException {
         String query;
-        if (database.getMajorVersion() == 1) {
+        if (cockroachDB1) {
             query =
                     //Search for all the table names
                     "SELECT table_name FROM information_schema.tables" +
@@ -155,7 +161,7 @@ public class CockroachDBSchema extends Schema<CockroachDBDatabase> {
         List<String> tableNames = jdbcTemplate.queryForStringList(query, name);
         //Views and child tables are excluded as they are dropped with the parent table when using cascade.
 
-        Table[] tables = new Table[tableNames.size()];
+        CockroachDBTable[] tables = new CockroachDBTable[tableNames.size()];
         for (int i = 0; i < tableNames.size(); i++) {
             tables[i] = new CockroachDBTable(jdbcTemplate, database, this, tableNames.get(i));
         }

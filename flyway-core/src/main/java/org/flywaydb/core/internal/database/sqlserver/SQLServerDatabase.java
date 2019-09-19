@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,14 @@
  */
 package org.flywaydb.core.internal.database.sqlserver;
 
+import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.Configuration;
 import org.flywaydb.core.internal.database.base.Database;
-import org.flywaydb.core.internal.placeholder.PlaceholderReplacer;
-import org.flywaydb.core.internal.resource.ResourceProvider;
-import org.flywaydb.core.internal.sqlscript.Delimiter;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilderFactory;
-import org.flywaydb.core.internal.exception.FlywayDbUpgradeRequiredException;
+import org.flywaydb.core.internal.database.base.Table;
 import org.flywaydb.core.internal.exception.FlywaySqlException;
+import org.flywaydb.core.internal.jdbc.JdbcConnectionFactory;
+import org.flywaydb.core.internal.sqlscript.Delimiter;
 import org.flywaydb.core.internal.util.StringUtils;
-import org.flywaydb.core.internal.resource.LoadableResource;
-import org.flywaydb.core.internal.resource.StringResource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -40,14 +37,13 @@ public class SQLServerDatabase extends Database<SQLServerConnection> {
      * Creates a new instance.
      *
      * @param configuration The Flyway configuration.
-     * @param connection    The connection to use.
      */
-    public SQLServerDatabase(Configuration configuration, Connection connection, boolean originalAutoCommit
+    public SQLServerDatabase(Configuration configuration, JdbcConnectionFactory jdbcConnectionFactory
 
 
 
     ) {
-        super(configuration, connection, originalAutoCommit
+        super(configuration, jdbcConnectionFactory
 
 
 
@@ -61,83 +57,86 @@ public class SQLServerDatabase extends Database<SQLServerConnection> {
     }
 
     @Override
-    protected SQLServerConnection getConnection(Connection connection
-
-
-
-    ) {
-        return new SQLServerConnection(configuration, this, connection, originalAutoCommit
-
-
-
-        );
+    protected SQLServerConnection doGetConnection(Connection connection) {
+        return new SQLServerConnection(this, connection);
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     @Override
     public final void ensureSupported() {
-        String release = versionToReleaseName(majorVersion, minorVersion);
+        if (isAzure()) {
+            ensureDatabaseIsRecentEnough("11.0");
 
-        if (majorVersion < 10) {
-            throw new FlywayDbUpgradeRequiredException("SQL Server", release, "2008");
-        }
+            ensureDatabaseNotOlderThanOtherwiseRecommendUpgradeToFlywayEdition("12.0", org.flywaydb.core.internal.license.Edition.ENTERPRISE);
 
-        if (majorVersion < 12) {
-        throw new org.flywaydb.core.internal.exception.FlywayEnterpriseUpgradeRequiredException("Microsoft", "SQL Server", release);
-        }
+            recommendFlywayUpgradeIfNecessary("12.0");
+        } else {
+            ensureDatabaseIsRecentEnough("10.0");
 
-        if (majorVersion > 14 || (majorVersion == 14 && minorVersion > 0)) {
-            recommendFlywayUpgrade("SQL Server", release);
+            ensureDatabaseNotOlderThanOtherwiseRecommendUpgradeToFlywayEdition("13.0", org.flywaydb.core.internal.license.Edition.ENTERPRISE);
+
+            recommendFlywayUpgradeIfNecessary("15.0");
         }
     }
 
-    private String versionToReleaseName(int major, int minor) {
-        if (major < 8) {
-            return major + "." + minor;
+    @Override
+    protected String computeVersionDisplayName(MigrationVersion version) {
+        if (isAzure()) {
+            return "Azure v" + getVersion().getMajorAsString();
         }
-        if (major == 8) {
-            return "2000";
-        }
-        if (major == 9) {
-            return "2005";
-        }
-        if (major == 10) {
-            if (minor == 0) {
-                return "2008";
+
+        if (getVersion().isAtLeast("8")) {
+            if ("8".equals(getVersion().getMajorAsString())) {
+                return "2000";
             }
-            return "2008 R2";
+            if ("9".equals(getVersion().getMajorAsString())) {
+                return "2005";
+            }
+            if ("10".equals(getVersion().getMajorAsString())) {
+                if ("0".equals(getVersion().getMinorAsString())) {
+                    return "2008";
+                }
+                return "2008 R2";
+            }
+            if ("11".equals(getVersion().getMajorAsString())) {
+                return "2012";
+            }
+            if ("12".equals(getVersion().getMajorAsString())) {
+                return "2014";
+            }
+            if ("13".equals(getVersion().getMajorAsString())) {
+                return "2016";
+            }
+            if ("14".equals(getVersion().getMajorAsString())) {
+                return "2017";
+            }
+            if ("15".equals(getVersion().getMajorAsString())) {
+                return "2019";
+            }
         }
-        if (major == 11) {
-            return "2012";
-        }
-        if (major == 12) {
-            return "2014";
-        }
-        if (major == 13) {
-            return "2016";
-        }
-        if (major == 14) {
-            return "2017";
-        }
-        return major + "." + minor;
-    }
-
-    @Override
-    protected SqlStatementBuilderFactory createSqlStatementBuilderFactory(PlaceholderReplacer placeholderReplacer
-
-
-
-    ) {
-        return new SQLServerSqlStatementBuilderFactory(placeholderReplacer);
-    }
-
-    @Override
-    public String getDbName() {
-        return "sqlserver";
+        return super.computeVersionDisplayName(version);
     }
 
     @Override
     public Delimiter getDefaultDelimiter() {
-        return new Delimiter("GO", true);
+        return Delimiter.GO;
     }
 
     @Override
@@ -191,8 +190,12 @@ public class SQLServerDatabase extends Database<SQLServerConnection> {
     }
 
     @Override
-    protected LoadableResource getRawCreateScript() {
-        return new StringResource("CREATE TABLE ${table_quoted} (\n" +
+    public String getRawCreateScript(Table table, boolean baseline) {
+        String filegroup = azure || configuration.getTablespace() == null
+                ? ""
+                : " ON \"" + configuration.getTablespace() + "\"";
+
+        return "CREATE TABLE " + table + " (\n" +
                 "    [installed_rank] INT NOT NULL,\n" +
                 "    [" + "version] NVARCHAR(50),\n" +
                 "    [description] NVARCHAR(200),\n" +
@@ -203,11 +206,11 @@ public class SQLServerDatabase extends Database<SQLServerConnection> {
                 "    [installed_on] DATETIME NOT NULL DEFAULT GETDATE(),\n" +
                 "    [execution_time] INT NOT NULL,\n" +
                 "    [success] BIT NOT NULL\n" +
-                ");\n" +
-                "ALTER TABLE ${table_quoted} ADD CONSTRAINT [${table}_pk] PRIMARY KEY ([installed_rank]);\n" +
-                "\n" +
-                "CREATE INDEX [${table}_s_idx] ON ${table_quoted} ([success]);\n" +
-                "GO\n");
+                ")" + filegroup + ";\n" +
+                (baseline ? getBaselineStatement(table) + ";\n" : "") +
+                "ALTER TABLE " + table + " ADD CONSTRAINT [" + table.getName() + "_pk] PRIMARY KEY ([installed_rank]);\n" +
+                "CREATE INDEX [" + table.getName() + "_s_idx] ON " + table + " ([success]);\n" +
+                "GO\n";
     }
 
     /**

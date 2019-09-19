@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,19 +17,17 @@ package org.flywaydb.core.internal.resolver;
 
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.configuration.Configuration;
+import org.flywaydb.core.api.migration.JavaMigration;
 import org.flywaydb.core.api.resolver.Context;
 import org.flywaydb.core.api.resolver.MigrationResolver;
 import org.flywaydb.core.api.resolver.ResolvedMigration;
-import org.flywaydb.core.internal.callback.CallbackExecutor;
 import org.flywaydb.core.internal.clazz.ClassProvider;
-import org.flywaydb.core.internal.database.base.Database;
-import org.flywaydb.core.internal.resolver.java.JavaMigrationResolver;
-import org.flywaydb.core.internal.resolver.jdbc.JdbcMigrationResolver;
-import org.flywaydb.core.internal.resolver.spring.SpringJdbcMigrationResolver;
+import org.flywaydb.core.internal.resolver.java.FixedJavaMigrationResolver;
+import org.flywaydb.core.internal.resolver.java.ScanningJavaMigrationResolver;
 import org.flywaydb.core.internal.resolver.sql.SqlMigrationResolver;
 import org.flywaydb.core.internal.resource.ResourceProvider;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilderFactory;
-import org.flywaydb.core.internal.util.FeatureDetector;
+import org.flywaydb.core.internal.sqlscript.SqlScriptExecutorFactory;
+import org.flywaydb.core.internal.sqlscript.SqlScriptFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,36 +56,25 @@ public class CompositeMigrationResolver implements MigrationResolver {
     /**
      * Creates a new CompositeMigrationResolver.
      *
-     * @param database                   The database-specific support.
-     * @param resourceProvider           The resource provider.
-     * @param classProvider              The class provider.
-     * @param configuration              The Flyway configuration.
-     * @param sqlStatementBuilderFactory The SQL statement builder factory.
-     * @param customMigrationResolvers   Custom Migration Resolvers.
+     * @param resourceProvider         The resource provider.
+     * @param classProvider            The class provider.
+     * @param configuration            The Flyway configuration.
+     * @param sqlScriptFactory         The SQL statement builder factory.
+     * @param customMigrationResolvers Custom Migration Resolvers.
      */
-    public CompositeMigrationResolver(Database database,
-                                      ResourceProvider resourceProvider,
-                                      ClassProvider classProvider,
+    public CompositeMigrationResolver(ResourceProvider resourceProvider,
+                                      ClassProvider<JavaMigration> classProvider,
                                       Configuration configuration,
-                                      SqlStatementBuilderFactory sqlStatementBuilderFactory
-
-
-
-            , MigrationResolver... customMigrationResolvers
+                                      SqlScriptExecutorFactory sqlScriptExecutorFactory,
+                                      SqlScriptFactory sqlScriptFactory,
+                                      MigrationResolver... customMigrationResolvers
     ) {
         if (!configuration.isSkipDefaultResolvers()) {
-            migrationResolvers.add(new SqlMigrationResolver(database, resourceProvider, sqlStatementBuilderFactory
-
-
-
-                    , configuration));
-            migrationResolvers.add(new JavaMigrationResolver(classProvider, configuration));
-            migrationResolvers.add(new JdbcMigrationResolver(classProvider, configuration));
-
-            if (new FeatureDetector(configuration.getClassLoader()).isSpringJdbcAvailable()) {
-                migrationResolvers.add(new SpringJdbcMigrationResolver(classProvider, configuration));
-            }
+            migrationResolvers.add(new SqlMigrationResolver(resourceProvider, sqlScriptExecutorFactory, sqlScriptFactory,
+                    configuration));
+            migrationResolvers.add(new ScanningJavaMigrationResolver(classProvider, configuration));
         }
+        migrationResolvers.add(new FixedJavaMigrationResolver(configuration.getJavaMigrations()));
 
         migrationResolvers.addAll(Arrays.asList(customMigrationResolvers));
     }
@@ -146,11 +133,12 @@ public class CompositeMigrationResolver implements MigrationResolver {
      */
     /* private -> for testing */
     static void checkForIncompatibilities(List<ResolvedMigration> migrations) {
+    	ResolvedMigrationComparator resolvedMigrationComparator = new ResolvedMigrationComparator();
         // check for more than one migration with same version
         for (int i = 0; i < migrations.size() - 1; i++) {
             ResolvedMigration current = migrations.get(i);
             ResolvedMigration next = migrations.get(i + 1);
-            if (new ResolvedMigrationComparator().compare(current, next) == 0) {
+            if (resolvedMigrationComparator.compare(current, next) == 0) {
                 if (current.getVersion() != null) {
                     throw new FlywayException(String.format("Found more than one migration with version %s\nOffenders:\n-> %s (%s)\n-> %s (%s)",
                             current.getVersion(),

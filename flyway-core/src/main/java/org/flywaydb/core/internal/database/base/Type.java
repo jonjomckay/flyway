@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,16 +20,16 @@ import org.flywaydb.core.internal.jdbc.JdbcTemplate;
 /**
  * A user defined type within a schema.
  */
-public abstract class Type extends SchemaObject {
+public abstract class Type<D extends Database, S extends Schema> extends SchemaObject<D, S> {
     /**
      * Creates a new type with this name within this schema.
      *
      * @param jdbcTemplate The Jdbc Template for communicating with the DB.
-     * @param database    The database-specific support.
+     * @param database     The database-specific support.
      * @param schema       The schema this type lives in.
      * @param name         The name of the type.
      */
-    public Type(JdbcTemplate jdbcTemplate, Database database, Schema schema, String name) {
+    public Type(JdbcTemplate jdbcTemplate, D database, S schema, String name) {
         super(jdbcTemplate, database, schema, name);
     }
 }

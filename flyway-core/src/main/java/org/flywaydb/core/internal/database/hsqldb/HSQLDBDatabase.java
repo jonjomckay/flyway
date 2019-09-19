@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,8 @@ package org.flywaydb.core.internal.database.hsqldb;
 
 import org.flywaydb.core.api.configuration.Configuration;
 import org.flywaydb.core.internal.database.base.Database;
-import org.flywaydb.core.internal.exception.FlywayDbUpgradeRequiredException;
-import org.flywaydb.core.internal.placeholder.PlaceholderReplacer;
-import org.flywaydb.core.internal.resource.ResourceProvider;
-import org.flywaydb.core.internal.sqlscript.AbstractSqlStatementBuilderFactory;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilder;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilderFactory;
+import org.flywaydb.core.internal.database.base.Table;
+import org.flywaydb.core.internal.jdbc.JdbcConnectionFactory;
 
 import java.sql.Connection;
 
@@ -34,14 +30,13 @@ public class HSQLDBDatabase extends Database<HSQLDBConnection> {
      * Creates a new instance.
      *
      * @param configuration The Flyway configuration.
-     * @param connection    The connection to use.
      */
-    public HSQLDBDatabase(Configuration configuration, Connection connection, boolean originalAutoCommit
+    public HSQLDBDatabase(Configuration configuration, JdbcConnectionFactory jdbcConnectionFactory
 
 
 
     ) {
-        super(configuration, connection, originalAutoCommit
+        super(configuration, jdbcConnectionFactory
 
 
 
@@ -49,47 +44,47 @@ public class HSQLDBDatabase extends Database<HSQLDBConnection> {
     }
 
     @Override
-    protected HSQLDBConnection getConnection(Connection connection
-
-
-
-    ) {
-        return new HSQLDBConnection(configuration, this, connection, originalAutoCommit
-
-
-
-        );
+    protected HSQLDBConnection doGetConnection(Connection connection) {
+        return new HSQLDBConnection(this, connection);
     }
+
+
+
+
+
+
+
+
+
+
+
 
     @Override
     public final void ensureSupported() {
-        String version = majorVersion + "." + minorVersion;
+        ensureDatabaseIsRecentEnough("1.8");
 
-        if (majorVersion < 1 || (majorVersion == 1 && minorVersion < 8)) {
-            throw new FlywayDbUpgradeRequiredException("HSQLDB", version, "1.8");
-        }
+        ensureDatabaseNotOlderThanOtherwiseRecommendUpgradeToFlywayEdition("2.3", org.flywaydb.core.internal.license.Edition.ENTERPRISE);
 
-        if (majorVersion == 1 || (majorVersion == 2 && minorVersion < 3)) {
-        throw new org.flywaydb.core.internal.exception.FlywayEnterpriseUpgradeRequiredException("HSQL Development Group", "HSQLDB", version);
-        }
-
-        if (majorVersion > 2 || (majorVersion == 2 && minorVersion > 4)) {
-            recommendFlywayUpgrade("HSQLDB", version);
-        }
+        recommendFlywayUpgradeIfNecessary("2.5");
     }
 
     @Override
-    protected SqlStatementBuilderFactory createSqlStatementBuilderFactory(PlaceholderReplacer placeholderReplacer
-
-
-
-    ) {
-        return new HSQLDBSqlStatementBuilderFactory(placeholderReplacer);
-    }
-
-    @Override
-    public String getDbName() {
-        return "hsqldb";
+    public String getRawCreateScript(Table table, boolean baseline) {
+        return "CREATE TABLE " + table + " (\n" +
+                "    \"installed_rank\" INT NOT NULL,\n" +
+                "    \"version\" VARCHAR(50),\n" +
+                "    \"description\" VARCHAR(200) NOT NULL,\n" +
+                "    \"type\" VARCHAR(20) NOT NULL,\n" +
+                "    \"script\" VARCHAR(1000) NOT NULL,\n" +
+                "    \"checksum\" INT,\n" +
+                "    \"installed_by\" VARCHAR(100) NOT NULL,\n" +
+                "    \"installed_on\" TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,\n" +
+                "    \"execution_time\" INT NOT NULL,\n" +
+                "    \"success\" BIT NOT NULL\n" +
+                ");\n" +
+                (baseline ? getBaselineStatement(table) + ";\n" : "") +
+                "ALTER TABLE " + table + " ADD CONSTRAINT \"" + table.getName() + "_pk\" PRIMARY KEY (\"installed_rank\");\n" +
+                "CREATE INDEX \"" + table.getSchema().getName() + "\".\"" + table.getName() + "_s_idx\" ON " + table + " (\"success\");";
     }
 
     @Override
@@ -125,16 +120,5 @@ public class HSQLDBDatabase extends Database<HSQLDBConnection> {
     @Override
     public boolean useSingleConnection() {
         return true;
-    }
-
-    private static class HSQLDBSqlStatementBuilderFactory extends AbstractSqlStatementBuilderFactory {
-        public HSQLDBSqlStatementBuilderFactory(PlaceholderReplacer placeholderReplacer) {
-            super(placeholderReplacer);
-        }
-
-        @Override
-        public SqlStatementBuilder createSqlStatementBuilder() {
-            return new HSQLDBSqlStatementBuilder();
-        }
     }
 }

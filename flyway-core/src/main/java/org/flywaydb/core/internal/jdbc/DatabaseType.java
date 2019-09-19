@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,103 +27,55 @@ import java.sql.Types;
 /**
  * The various types of databases Flyway supports.
  */
+@SuppressWarnings("SqlDialectInspection")
 public enum DatabaseType {
-    /**
-     * CockroachDB.
-     */
-    COCKROACHDB(Types.NULL),
+    COCKROACHDB("CockroachDB", Types.NULL, false),
+    DB2("DB2", Types.VARCHAR, true),
 
-    /**
-     * DB2.
-     */
-    DB2(Types.VARCHAR),
 
-    /**
-     * Derby.
-     */
-    DERBY(Types.VARCHAR),
 
-    /**
-     * H2.
-     */
-    H2(Types.VARCHAR),
+    DERBY("Derby", Types.VARCHAR, true),
+    FIREBIRD("Firebird", Types.NULL, true), // TODO does it suppor tread only transactions
+    H2("H2", Types.VARCHAR, true),
+    HSQLDB("HSQLDB", Types.VARCHAR, true),
+    INFORMIX("Informix", Types.VARCHAR, true),
+    MARIADB("MariaDB", Types.VARCHAR, true),
+    MYSQL("MySQL", Types.VARCHAR, true),
+    ORACLE("Oracle", Types.VARCHAR, true),
+    POSTGRESQL("PostgreSQL", Types.NULL, true),
+    REDSHIFT("Redshift", Types.VARCHAR, true),
+    SQLITE("SQLite", Types.VARCHAR, false),
+    SQLSERVER("SQL Server", Types.VARCHAR, true),
+    SYBASEASE_JTDS("Sybase ASE", Types.NULL, true),
+    SYBASEASE_JCONNECT("Sybase ASE", Types.VARCHAR, true),
+    SAPHANA("SAP HANA", Types.VARCHAR, true),
+    CLICKHOUSE("ClickHouse", Types.NULL, true);
 
-    /**
-     * HSQLDB.
-     */
-    HSQLDB(Types.VARCHAR),
-
-    /**
-     * Informix.
-     */
-    INFORMIX(Types.VARCHAR),
-
-    /**
-     * For regular MySQL, MariaDB and Google Cloud SQL.
-     */
-    MYSQL(Types.VARCHAR),
-
-    /**
-     * Oracle.
-     */
-    ORACLE(Types.VARCHAR),
-
-    /**
-     * PostgreSQL.
-     */
-    POSTGRESQL(Types.NULL),
-
-    /**
-     * Redshift.
-     */
-    REDSHIFT(Types.VARCHAR),
-
-    /**
-     * SQLite.
-     */
-    SQLITE(Types.VARCHAR),
-
-    /**
-     * SQL Server.
-     */
-    SQLSERVER(Types.VARCHAR),
-
-    /**
-     * Sybase ASE, using the legacy jTDS driver.
-     */
-    SYBASEASE_JTDS(Types.NULL),
-
-    /**
-     * Sybase ASE, using the jConnect driver.
-     */
-    SYBASEASE_JCONNECT(Types.VARCHAR),
-
-    /**
-     * SAP HANA.
-     */
-    SAPHANA(Types.VARCHAR),
-
-    /**
-     * Clickhouse
-     */
-    CLICKHOUSE(Types.NULL);
-
+    private final String name;
 
     private final int nullType;
 
-    DatabaseType(int nullType) {
+    private final boolean supportsReadOnlyTransactions;
+
+    DatabaseType(String name, int nullType, boolean supportsReadOnlyTransactions) {
+        this.name = name;
         this.nullType = nullType;
+        this.supportsReadOnlyTransactions = supportsReadOnlyTransactions;
     }
 
     public static DatabaseType fromJdbcConnection(Connection connection) {
         DatabaseMetaData databaseMetaData = JdbcUtils.getDatabaseMetaData(connection);
         String databaseProductName = JdbcUtils.getDatabaseProductName(databaseMetaData);
+        String databaseProductVersion = JdbcUtils.getDatabaseProductVersion(databaseMetaData);
+
         String postgreSQLVersion = databaseProductName.startsWith("PostgreSQL") ? getPostgreSQLVersion(connection) : "";
 
-        return fromDatabaseProductNameAndPostgreSQLVersion(databaseProductName, postgreSQLVersion);
+        return fromDatabaseProductNameAndPostgreSQLVersion(databaseProductName, databaseProductVersion, postgreSQLVersion);
     }
 
-    private static DatabaseType fromDatabaseProductNameAndPostgreSQLVersion(String databaseProductName, String postgreSQLVersion) {
+    private static DatabaseType fromDatabaseProductNameAndPostgreSQLVersion(String databaseProductName,
+                                                                            String databaseProductVersion,
+                                                                            String postgreSQLVersion) {
         if (databaseProductName.startsWith("Apache Derby")) {
             return DERBY;
         }
@@ -139,6 +91,14 @@ public enum DatabaseType {
         if (databaseProductName.startsWith("Microsoft SQL Server")) {
             return SQLSERVER;
         }
+
+        // #2289: MariaDB JDBC driver 2.4.0 and newer report MariaDB as "MariaDB"
+        if (databaseProductName.startsWith("MariaDB")
+                // Older versions of the driver report MariaDB as "MySQL"
+                || databaseProductName.contains("MySQL") && databaseProductVersion.contains("MariaDB")) {
+            return MARIADB;
+        }
+
         if (databaseProductName.contains("MySQL")) {
             // Google Cloud SQL returns different names depending on the environment and the SDK version.
             //   ex.: Google SQL Service/MySQL
@@ -157,6 +117,11 @@ public enum DatabaseType {
             return POSTGRESQL;
         }
         if (databaseProductName.startsWith("DB2")) {
+
+
+
+
+
             return DB2;
         }
         if (databaseProductName.startsWith("ASE")) {
@@ -173,6 +138,9 @@ public enum DatabaseType {
         }
         if (databaseProductName.startsWith("ClickHouse")) {
             return CLICKHOUSE;
+        }
+        if (databaseProductName.startsWith("Firebird")) {
+            return FIREBIRD;
         }
         throw new FlywayException("Unsupported Database: " + databaseProductName);
     }
@@ -206,9 +174,32 @@ public enum DatabaseType {
     }
 
     /**
+     * @return The human-readable name for this database.
+     */
+    public String getName() {
+        return name;
+    }
+
+    /**
      * @return The JDBC type used to represent {@code null} in prepared statements.
      */
     public int getNullType() {
         return nullType;
     }
+
+    @Override
+    public String toString() {
+        return name;
+    }
+
+
+
+
+
+
+
+
+
+
+
 }

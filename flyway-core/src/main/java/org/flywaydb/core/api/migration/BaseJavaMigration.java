@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package org.flywaydb.core.api.migration;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.internal.resolver.MigrationInfoHelper;
-import org.flywaydb.core.internal.util.ClassUtils;
 import org.flywaydb.core.internal.util.Pair;
 
 /**
@@ -52,7 +51,7 @@ public abstract class BaseJavaMigration implements JavaMigration {
      * Creates a new instance of a Java-based migration following Flyway's default naming convention.
      */
     public BaseJavaMigration() {
-        String shortName = ClassUtils.getShortName(getClass());
+        String shortName = getClass().getSimpleName();
         String prefix;
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,9 +42,9 @@ public final class MigrationVersion implements Comparable<MigrationVersion> {
     public static final MigrationVersion CURRENT = new MigrationVersion(BigInteger.valueOf(-2), "<< Current Version >>");
 
     /**
-     * Compiled pattern for matching proper version format
+     * Regex for matching proper version format
      */
-    private static Pattern splitPattern = Pattern.compile("\\.(?=\\d)");
+    private static final Pattern SPLIT_REGEX = Pattern.compile("\\.(?=\\d)");
 
     /**
      * The individual parts this version string is composed of. Ex. 1.2.3.4.0 -> [1, 2, 3, 4, 0]
@@ -57,7 +57,7 @@ public final class MigrationVersion implements Comparable<MigrationVersion> {
     private final String displayText;
 
     /**
-     * Factory for creating a MigrationVersion from a version String
+     * Create a MigrationVersion from a version String.
      *
      * @param version The version String. The value {@code current} will be interpreted as MigrationVersion.CURRENT,
      *                a marker for the latest version that has been applied to the database.
@@ -66,7 +66,7 @@ public final class MigrationVersion implements Comparable<MigrationVersion> {
     @SuppressWarnings("ConstantConditions")
     public static MigrationVersion fromVersion(String version) {
         if ("current".equalsIgnoreCase(version)) return CURRENT;
-        if (LATEST.getVersion().equals(version)) return LATEST;
+        if ("latest".equalsIgnoreCase(version) || LATEST.getVersion().equals(version)) return LATEST;
         if (version == null) return EMPTY;
         return new MigrationVersion(version);
     }
@@ -128,34 +128,90 @@ public final class MigrationVersion implements Comparable<MigrationVersion> {
         return versionParts == null ? 0 : versionParts.hashCode();
     }
 
-    @SuppressWarnings("NullableProblems")
+    /**
+     * Convenience method for quickly checking whether this version is at least as new as this other version.
+     *
+     * @param otherVersion The other version.
+     * @return {@code true} if this version is equal or newer, {@code false} if it is older.
+     */
+    public boolean isAtLeast(String otherVersion) {
+        return compareTo(MigrationVersion.fromVersion(otherVersion)) >= 0;
+    }
+
+    /**
+     * Convenience method for quickly checking whether this version is newer than this other version.
+     *
+     * @param otherVersion The other version.
+     * @return {@code true} if this version is newer, {@code false} if it is not.
+     */
+    public boolean isNewerThan(String otherVersion) {
+        return compareTo(MigrationVersion.fromVersion(otherVersion)) > 0;
+    }
+
+    /**
+     * Convenience method for quickly checking whether this major version is newer than this other major version.
+     *
+     * @param otherVersion The other version.
+     * @return {@code true} if this major version is newer, {@code false} if it is not.
+     */
+    public boolean isMajorNewerThan(String otherVersion) {
+        return getMajor().compareTo(MigrationVersion.fromVersion(otherVersion).getMajor()) > 0;
+    }
+
+    /**
+     * @return The major version.
+     */
+    public BigInteger getMajor() {
+        return versionParts.get(0);
+    }
+
+    /**
+     * @return The major version as a string.
+     */
+    public String getMajorAsString() {
+        return versionParts.get(0).toString();
+    }
+
+    /**
+     * @return The minor version as a string.
+     */
+    public String getMinorAsString() {
+        if (versionParts.size() == 1) {
+            return "0";
+        }
+        return versionParts.get(1).toString();
+    }
+
+    @Override
     public int compareTo(MigrationVersion o) {
         if (o == null) {
             return 1;
         }
 
         if (this == EMPTY) {
-            return o == EMPTY ? 0 : Integer.MIN_VALUE;
+            if (o == EMPTY) return 0;
+            else return -1;
         }
 
         if (this == CURRENT) {
-            return o == CURRENT ? 0 : Integer.MIN_VALUE;
+            return o == CURRENT ? 0 : -1;
         }
 
         if (this == LATEST) {
-            return o == LATEST ? 0 : Integer.MAX_VALUE;
+            if (o == LATEST) return 0;
+            else return 1;
         }
 
         if (o == EMPTY) {
-            return Integer.MAX_VALUE;
+            return 1;
         }
 
         if (o == CURRENT) {
-            return Integer.MAX_VALUE;
+            return 1;
         }
 
         if (o == LATEST) {
-            return Integer.MIN_VALUE;
+            return -1;
         }
         final List<BigInteger> parts1 = versionParts;
         final List<BigInteger> parts2 = o.versionParts;
@@ -176,26 +232,30 @@ public final class MigrationVersion implements Comparable<MigrationVersion> {
     /**
      * Splits this string into list of Long
      *
-     * @param str The string to split.
+     * @param versionStr The string to split.
      * @return The resulting array.
      */
-    private List<BigInteger> tokenize(String str) {
+    private List<BigInteger> tokenize(String versionStr) {
         List<BigInteger> parts = new ArrayList<>();
-        try {
-            for (String part : splitPattern.split(str)) {
-                parts.add(new BigInteger(part));
-            }
-        } catch (NumberFormatException e) {
-            throw new FlywayException(
-                    "Invalid version containing non-numeric characters. Only 0..9 and . are allowed. Invalid version: "
-                            + str);
+        for (String part : SPLIT_REGEX.split(versionStr)) {
+            parts.add(toBigInteger(versionStr, part));
         }
+
         for (int i = parts.size() - 1; i > 0; i--) {
             if (!parts.get(i).equals(BigInteger.ZERO)) {
                 break;
             }
             parts.remove(i);
         }
+
         return parts;
+    }
+
+    private BigInteger toBigInteger(String versionStr, String part) {
+        try {
+            return new BigInteger(part);
+        } catch (NumberFormatException e) {
+            throw new FlywayException("Version may only contain 0..9 and . (dot). Invalid version: " + versionStr);
+        }
     }
 }

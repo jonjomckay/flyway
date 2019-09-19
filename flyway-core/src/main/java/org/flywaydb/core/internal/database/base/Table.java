@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import java.sql.SQLException;
 /**
  * Represents a database table within a schema.
  */
-public abstract class Table extends SchemaObject {
+public abstract class Table<D extends Database, S extends Schema> extends SchemaObject<D, S> {
     private static final Log LOG = LogFactory.getLog(Table.class);
 
     /**
@@ -38,7 +38,7 @@ public abstract class Table extends SchemaObject {
      * @param schema       The schema this table lives in.
      * @param name         The name of the table.
      */
-    public Table(JdbcTemplate jdbcTemplate, Database database, Schema schema, String name) {
+    public Table(JdbcTemplate jdbcTemplate, D database, S schema, String name) {
         super(jdbcTemplate, database, schema, name);
     }
 
@@ -99,6 +99,9 @@ public abstract class Table extends SchemaObject {
      * Locks this table in this schema using a read/write pessimistic lock until the end of the current transaction.
      */
     public void lock() {
+        if (!exists()) {
+            return;
+        }
         try {
             LOG.debug("Locking table " + this + "...");
             doLock();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,4 +34,20 @@ public interface Warning {
      * @return The warning message.
      */
     String getMessage();
+
+    /**
+     * Checks whether this warning has already been handled.
+     *
+     * @return {@code true} {@code true} if this warning has already be handled or {@code false} if it should flow
+     * via the default warning handler.
+     */
+    boolean isHandled();
+
+    /**
+     * Sets whether this warning has already been handled.
+     *
+     * @param handled {@code true} if this warning has already be handled or {@code false} if it should flow via the
+     *                default warning handler.
+     */
+    void setHandled(boolean handled);
 }

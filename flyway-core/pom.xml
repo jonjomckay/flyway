@@ -1,6 +1,6 @@
 <!--
 
-    Copyright 2010-2018 Boxfuse GmbH
+    Copyright 2010-2019 Boxfuse GmbH
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -38,11 +38,6 @@
             <optional>true</optional>
         </dependency>
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-jdbc</artifactId>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
             <groupId>org.jboss</groupId>
             <artifactId>jboss-vfs</artifactId>
             <optional>true</optional>
@@ -68,6 +63,27 @@
             <artifactId>clickhouse-jdbc</artifactId>
             <scope>test</scope>
         </dependency>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -244,7 +260,6 @@
             <plugin>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <configuration>
-                    <encoding>UTF-8</encoding>
                     <sourceFileIncludes>
                         <sourceFileInclude>**/core/Flyway.java</sourceFileInclude>
                         <sourceFileInclude>**/core/api/**/*.java</sourceFileInclude>
@@ -260,7 +275,6 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>3.0.1</version>
                 <configuration>
-                    <encoding>UTF-8</encoding>
                     <sourceFileIncludes>
                         <sourceFileInclude>**/core/Flyway.java</sourceFileInclude>
                         <sourceFileInclude>**/core/api/**/*.java</sourceFileInclude>

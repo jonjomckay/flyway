@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,42 +15,37 @@
  */
 package org.flywaydb.core.internal.database.base;
 
+import org.flywaydb.core.api.MigrationType;
+import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.Configuration;
 import org.flywaydb.core.api.logging.Log;
 import org.flywaydb.core.api.logging.LogFactory;
-import org.flywaydb.core.internal.callback.CallbackExecutor;
-import org.flywaydb.core.internal.callback.NoopCallbackExecutor;
+import org.flywaydb.core.internal.exception.FlywayDbUpgradeRequiredException;
 import org.flywaydb.core.internal.exception.FlywaySqlException;
-import org.flywaydb.core.internal.jdbc.JdbcTemplate;
-import org.flywaydb.core.internal.jdbc.JdbcUtils;
-import org.flywaydb.core.internal.placeholder.DefaultPlaceholderReplacer;
-import org.flywaydb.core.internal.placeholder.NoopPlaceholderReplacer;
-import org.flywaydb.core.internal.placeholder.PlaceholderReplacer;
-import org.flywaydb.core.internal.resource.LoadableResource;
-import org.flywaydb.core.internal.resource.NoopResourceProvider;
-import org.flywaydb.core.internal.resource.ResourceProvider;
+import org.flywaydb.core.internal.jdbc.DatabaseType;
+import org.flywaydb.core.internal.jdbc.JdbcConnectionFactory;
+import org.flywaydb.core.internal.license.Edition;
+import org.flywaydb.core.internal.license.FlywayEditionUpgradeRequiredException;
 import org.flywaydb.core.internal.resource.StringResource;
-import org.flywaydb.core.internal.resource.classpath.ClassPathResource;
 import org.flywaydb.core.internal.sqlscript.Delimiter;
 import org.flywaydb.core.internal.sqlscript.SqlScript;
-import org.flywaydb.core.internal.sqlscript.SqlStatementBuilderFactory;
-import org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor;
-import org.flywaydb.core.internal.sqlscript.SqlScriptExecutor;
-import org.flywaydb.core.internal.util.ExceptionUtils;
-import org.flywaydb.core.internal.util.Pair;
+import org.flywaydb.core.internal.sqlscript.SqlScriptFactory;
+import org.flywaydb.core.internal.util.AbbreviationUtils;
 
 import java.io.Closeable;
-import java.nio.charset.Charset;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Abstraction for database-specific functionality.
  */
 public abstract class Database<C extends Connection> implements Closeable {
     private static final Log LOG = LogFactory.getLog(Database.class);
+
+    /**
+     * The type of database this is.
+     */
+    protected final DatabaseType databaseType;
 
     /**
      * The Flyway configuration.
@@ -63,14 +58,9 @@ public abstract class Database<C extends Connection> implements Closeable {
     protected final DatabaseMetaData jdbcMetaData;
 
     /**
-     * The main JDBC connection to use.
+     * The main JDBC connection, without any wrapping.
      */
-    private final java.sql.Connection mainJdbcConnection;
-
-    /**
-     * The original auto-commit state for connections to this database.
-     */
-    protected final boolean originalAutoCommit;
+    protected final java.sql.Connection rawMainJdbcConnection;
 
     /**
      * The main connection to use.
@@ -82,53 +72,44 @@ public abstract class Database<C extends Connection> implements Closeable {
      */
     private C migrationConnection;
 
-
-
-
-
+    protected final JdbcConnectionFactory jdbcConnectionFactory;
 
 
 
 
 
     /**
-     * The major version of the database.
+     * The major.minor version of the database.
      */
-    protected final int majorVersion;
+    private MigrationVersion version;
 
     /**
-     * The minor version of the database.
+     * The user who applied the migrations.
      */
-    protected final int minorVersion;
+    private String installedBy;
 
     /**
      * Creates a new Database instance with this JdbcTemplate.
      *
-     * @param configuration      The Flyway configuration.
-     * @param connection         The main connection to use.
-     * @param originalAutoCommit The original auto-commit state for connections to this database.
+     * @param configuration The Flyway configuration.
      */
-    public Database(Configuration configuration, java.sql.Connection connection, boolean originalAutoCommit
+    public Database(Configuration configuration, JdbcConnectionFactory jdbcConnectionFactory
 
 
 
     ) {
+        this.databaseType = jdbcConnectionFactory.getDatabaseType();
         this.configuration = configuration;
-        this.mainJdbcConnection = connection;
-        this.originalAutoCommit = originalAutoCommit;
+        this.rawMainJdbcConnection = jdbcConnectionFactory.openConnection();
         try {
-            this.jdbcMetaData = connection.getMetaData();
+            this.jdbcMetaData = rawMainJdbcConnection.getMetaData();
         } catch (SQLException e) {
             throw new FlywaySqlException("Unable to get metadata for connection", e);
         }
+        this.jdbcConnectionFactory = jdbcConnectionFactory;
 
 
 
-
-
-        Pair<Integer, Integer> majorMinor = determineMajorAndMinorVersion();
-        majorVersion = majorMinor.getLeft();
-        minorVersion = majorMinor.getRight();
     }
 
     /**
@@ -137,71 +118,85 @@ public abstract class Database<C extends Connection> implements Closeable {
      * @param connection The JDBC connection to wrap.
      * @return The Flyway Connection.
      */
-    protected abstract C getConnection(java.sql.Connection connection
+    private C getConnection(java.sql.Connection connection) {
+        return doGetConnection(connection);
+    }
 
-
-
-    );
+    /**
+     * Retrieves a Flyway Connection for this JDBC connection.
+     *
+     * @param connection The JDBC connection to wrap.
+     * @return The Flyway Connection.
+     */
+    protected abstract C doGetConnection(java.sql.Connection connection);
 
     /**
      * Ensures Flyway supports this version of this database.
      */
     public abstract void ensureSupported();
 
-    protected final void recommendFlywayUpgrade(String database, String version) {
-        LOG.warn("Flyway upgrade recommended: " + database + " " + version
-                + " is newer than this version of Flyway and support has not been tested.");
+    /**
+     * @return The major.minor version of the database.
+     */
+    public final MigrationVersion getVersion() {
+        if (version == null) {
+            version = determineVersion();
+        }
+        return version;
     }
 
-    public final SqlStatementBuilderFactory createSqlStatementBuilderFactory(
-
-
-
-    ) {
-        return createSqlStatementBuilderFactory(
-                createPlaceholderReplacer(
-                        configuration.isPlaceholderReplacement(), configuration.getPlaceholders(),
-                        configuration.getPlaceholderPrefix(), configuration.getPlaceholderSuffix())
-
-
-
-        );
+    protected final void ensureDatabaseIsRecentEnough(String oldestSupportedVersion) {
+        if (!getVersion().isAtLeast(oldestSupportedVersion)) {
+            throw new FlywayDbUpgradeRequiredException(databaseType, computeVersionDisplayName(getVersion()),
+                    computeVersionDisplayName(MigrationVersion.fromVersion(oldestSupportedVersion)));
+        }
     }
-
-    protected abstract SqlStatementBuilderFactory createSqlStatementBuilderFactory(
-            PlaceholderReplacer placeholderReplacer
-
-
-
-    );
 
     /**
-     * Creates a new SqlScriptExecutor for this specific database.
-     * <p>
-
-
-
-
-     * @return The new SqlScriptExecutor.
+     * Ensures this database it at least at recent as this version otherwise suggest upgrade to this higher edition of
+     * Flyway.
+     *
+     * @param oldestSupportedVersionInThisEdition The oldest supported version of the database by this edition of Flyway.
+     * @param editionWhereStillSupported          The edition of Flyway that still supports this version of the database,
+     *                                            in case it's too old.
      */
-    public SqlScriptExecutor createSqlScriptExecutor(JdbcTemplate jdbcTemplate
-
-
-
-    ) {
-        return new DefaultSqlScriptExecutor(jdbcTemplate
-
-
-
-        );
+    protected final void ensureDatabaseNotOlderThanOtherwiseRecommendUpgradeToFlywayEdition(String oldestSupportedVersionInThisEdition,
+                                                                                            Edition editionWhereStillSupported) {
+        if (!getVersion().isAtLeast(oldestSupportedVersionInThisEdition)) {
+            throw new FlywayEditionUpgradeRequiredException(
+                    editionWhereStillSupported,
+                    databaseType,
+                    computeVersionDisplayName(getVersion()));
+        }
     }
 
-    protected PlaceholderReplacer createPlaceholderReplacer(boolean enabled, Map<String, String> placeholders,
-                                                            String placeholderPrefix, String placeholderSuffix) {
-        if (enabled) {
-            return new DefaultPlaceholderReplacer(placeholders, placeholderPrefix, placeholderSuffix);
+    protected final void recommendFlywayUpgradeIfNecessary(String newestSupportedVersion) {
+        if (getVersion().isNewerThan(newestSupportedVersion)) {
+            recommendFlywayUpgrade(newestSupportedVersion);
         }
-        return NoopPlaceholderReplacer.INSTANCE;
+    }
+
+    protected final void recommendFlywayUpgradeIfNecessaryForMajorVersion(String newestSupportedVersion) {
+        if (getVersion().isMajorNewerThan(newestSupportedVersion)) {
+            recommendFlywayUpgrade(newestSupportedVersion);
+        }
+    }
+
+    private void recommendFlywayUpgrade(String newestSupportedVersion) {
+        String message = "Flyway upgrade recommended: " + databaseType + " " + computeVersionDisplayName(getVersion())
+                + " is newer than this version of Flyway and support has not been tested. "
+                + "The latest supported version of " + databaseType + " is " + newestSupportedVersion + ".";
+
+        LOG.warn(message);
+    }
+
+    /**
+     * Compute the user-friendly display name for this database version.
+     *
+     * @return The user-friendly display name.
+     */
+    protected String computeVersionDisplayName(MigrationVersion version) {
+        return version.getVersion();
     }
 
     /**
@@ -210,11 +205,6 @@ public abstract class Database<C extends Connection> implements Closeable {
     public Delimiter getDefaultDelimiter() {
         return Delimiter.SEMICOLON;
     }
-
-    /**
-     * @return The name of the db. Used for loading db-specific scripts such as <code>createMetaDataTable.sql</code>.
-     */
-    public abstract String getDbName();
 
     /**
      * @return The current database user.
@@ -239,23 +229,16 @@ public abstract class Database<C extends Connection> implements Closeable {
     public abstract boolean supportsDdlTransactions();
 
     /**
+     * Whether to add the baseline marker directly as part of the create table statement for this database.
+     */
+    public boolean useDirectBaseline() {
+        return false;
+    }
+
+    /**
      * @return {@code true} if this database supports changing a connection's current schema. {@code false if not}.
      */
     public abstract boolean supportsChangingCurrentSchema();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -329,12 +312,7 @@ public abstract class Database<C extends Connection> implements Closeable {
      */
     public final C getMainConnection() {
         if (mainConnection == null) {
-            initConnection(this, mainJdbcConnection, configuration.getInitSql());
-            this.mainConnection = getConnection(mainJdbcConnection
-
-
-
-            );
+            this.mainConnection = getConnection(rawMainJdbcConnection);
         }
         return mainConnection;
     }
@@ -345,111 +323,72 @@ public abstract class Database<C extends Connection> implements Closeable {
     public final C getMigrationConnection() {
         if (migrationConnection == null) {
             if (useSingleConnection()) {
-                this.migrationConnection = mainConnection;
+                this.migrationConnection = getMainConnection();
             } else {
-                java.sql.Connection migrationJdbcConnection =
-                        JdbcUtils.openConnection(configuration.getDataSource(), configuration.getConnectRetries());
-                initConnection(this, migrationJdbcConnection, configuration.getInitSql());
-                this.migrationConnection = getConnection(migrationJdbcConnection
-
-
-
-                );
+                this.migrationConnection = getConnection(jdbcConnectionFactory.openConnection());
             }
         }
         return migrationConnection;
     }
 
     /**
-     * Initializes this connection with these sql statements.
-     *
-     * @param database   The database for the connection.
-     * @param connection The connection.
-     * @param initSql    The sql statements.
-     */
-    private void initConnection(Database database, java.sql.Connection connection, String initSql) {
-        if (initSql == null) {
-            return;
-        }
-        new DefaultSqlScriptExecutor(new JdbcTemplate(connection)
-
-
-
-        ).execute(new SqlScript(database.createSqlStatementBuilderFactory(
-
-
-
-        ), new StringResource(initSql), true));
-    }
-
-    /**
-     * Returns the major version number of the database.
-     *
-     * @return the major version number as int.
-     */
-    public int getMajorVersion() {
-        return majorVersion;
-    }
-
-    /**
-     * Returns the minor version number of the database.
-     *
-     * @return the minor version number as int.
-     */
-    public int getMinorVersion() {
-        return minorVersion;
-    }
-
-    /**
      * @return The major and minor version of the database.
      */
-    protected Pair<Integer, Integer> determineMajorAndMinorVersion() {
+    protected MigrationVersion determineVersion() {
         try {
-            return Pair.of(jdbcMetaData.getDatabaseMajorVersion(), jdbcMetaData.getDatabaseMinorVersion());
+            return MigrationVersion.fromVersion(jdbcMetaData.getDatabaseMajorVersion() + "." + jdbcMetaData.getDatabaseMinorVersion());
         } catch (SQLException e) {
             throw new FlywaySqlException("Unable to determine the major version of the database", e);
         }
     }
 
-    public final SqlScript getCreateScript(Table table) {
-        Map<String, String> placeholders = new HashMap<>();
-        placeholders.put("schema", table.getSchema().getName());
-        placeholders.put("table", table.getName());
-        placeholders.put("table_quoted", table.toString());
-
-        PlaceholderReplacer placeholderReplacer =
-                createPlaceholderReplacer(true, placeholders, "${", "}");
-
-        SqlStatementBuilderFactory sqlStatementBuilderFactory = createSqlStatementBuilderFactory(placeholderReplacer
+    /**
+     * Retrieves the script used to create the schema history table.
+     *
+     * @param table    The table to create.
+     * @param baseline Whether to include the creation of a baseline marker.
+     * @return The script.
+     */
+    public final SqlScript getCreateScript(SqlScriptFactory sqlScriptFactory, Table table, boolean baseline) {
+        return sqlScriptFactory.createSqlScript(new StringResource(getRawCreateScript(table, baseline)), false
 
 
 
         );
-
-        return new SqlScript(sqlStatementBuilderFactory, getRawCreateScript(), false);
     }
 
-    protected LoadableResource getRawCreateScript() {
-        String resourceName = "org/flywaydb/core/internal/database/" + getDbName() + "/createMetaDataTable.sql";
-        return new ClassPathResource(null, resourceName, getClass().getClassLoader(), Charset.forName("UTF-8"));
-    }
+    public abstract String getRawCreateScript(Table table, boolean baseline);
 
-    public String getInsertStatement(Table table) {
+    public final String getInsertStatement(Table table) {
         return "INSERT INTO " + table
                 + " (" + quote("installed_rank")
-                + "," + quote("version")
-                + "," + quote("description")
-                + "," + quote("type")
-                + "," + quote("script")
-                + "," + quote("checksum")
-                + "," + quote("installed_by")
-                + "," + quote("execution_time")
-                + "," + quote("success")
+                + ", " + quote("version")
+                + ", " + quote("description")
+                + ", " + quote("type")
+                + ", " + quote("script")
+                + ", " + quote("checksum")
+                + ", " + quote("installed_by")
+                + ", " + quote("execution_time")
+                + ", " + quote("success")
                 + ")"
                 + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     }
 
-    public String getSelectStatement(Table table, int maxCachedInstalledRank) {
+    public final String getBaselineStatement(Table table) {
+        return String.format(getInsertStatement(table).replace("?", "%s"),
+                1,
+                "'" + configuration.getBaselineVersion() + "'",
+                "'" + AbbreviationUtils.abbreviateDescription(configuration.getBaselineDescription()) + "'",
+                "'" + MigrationType.BASELINE + "'",
+                "'" + AbbreviationUtils.abbreviateScript(configuration.getBaselineDescription()) + "'",
+                "NULL",
+                "'" + installedBy + "'",
+                0,
+                getBooleanTrue()
+        );
+    }
+
+    public String getSelectStatement(Table table) {
         return "SELECT " + quote("installed_rank")
                 + "," + quote("version")
                 + "," + quote("description")
@@ -461,8 +400,15 @@ public abstract class Database<C extends Connection> implements Closeable {
                 + "," + quote("execution_time")
                 + "," + quote("success")
                 + " FROM " + table
-                + " WHERE " + quote("installed_rank") + " > " + maxCachedInstalledRank
+                + " WHERE " + quote("installed_rank") + " > ?"
                 + " ORDER BY " + quote("installed_rank");
+    }
+
+    public final String getInstalledBy() {
+        if (installedBy == null) {
+            installedBy = configuration.getInstalledBy() == null ? getCurrentUser() : configuration.getInstalledBy();
+        }
+        return installedBy;
     }
 
     public void close() {
@@ -472,5 +418,9 @@ public abstract class Database<C extends Connection> implements Closeable {
         if (mainConnection != null) {
             mainConnection.close();
         }
+    }
+
+    public DatabaseType getDatabaseType() {
+        return databaseType;
     }
 }

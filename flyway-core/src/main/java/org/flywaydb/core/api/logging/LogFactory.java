@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package org.flywaydb.core.api.logging;
 import org.flywaydb.core.internal.logging.LogCreatorFactory;
 
 /**
- * Factory for loggers. Custom MigrationResolver, MigrationExecutor, FlywayCallback, ErrorHandler and JdbcMigration
+ * Factory for loggers. Custom MigrationResolver, MigrationExecutor, Callback and JavaMigration
  * implementations should use this to obtain a logger that will work with any logging framework across all environments
  * (API, Maven, Gradle, CLI, etc).
  */
@@ -41,6 +41,14 @@ public class LogFactory {
     }
 
     /**
+     * Sets the LogCreator that will be used. This will effectively override Flyway's default LogCreator auto-detection
+     * logic and force Flyway to always use this LogCreator regardless of which log libraries are present on the
+     * classpath.
+     *
+     * <p>This is primarily meant for integrating Flyway into environments with their own logging system (like Ant,
+     * Gradle, Maven, ...). This ensures Flyway is a good citizen in those environments and sends its logs through the
+     * expected pipeline.</p>
+     *
      * @param logCreator The factory for implementation-specific loggers.
      */
     public static void setLogCreator(LogCreator logCreator) {
@@ -48,6 +56,9 @@ public class LogFactory {
     }
 
     /**
+     * Sets the fallback LogCreator. This LogCreator will be used as a fallback solution when the default LogCreator
+     * auto-detection logic fails to detect a suitable LogCreator based on the log libraries present on the classpath.
+     *
      * @param fallbackLogCreator The factory for implementation-specific loggers to be used as a fallback when no other
      *                           suitable loggers were found.
      */
@@ -63,8 +74,7 @@ public class LogFactory {
      */
     public static Log getLog(Class<?> clazz) {
         if (logCreator == null) {
-            ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-            logCreator = LogCreatorFactory.getLogCreator(classLoader, fallbackLogCreator);
+            logCreator = LogCreatorFactory.getLogCreator(LogFactory.class.getClassLoader(), fallbackLogCreator);
         }
 
         return logCreator.createLogger(clazz);

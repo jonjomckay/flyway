@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ public enum NoopClassProvider implements ClassProvider {
     INSTANCE;
 
     @Override
-    public <I> Collection<Class<? extends I>> getClasses(Class<I> implementedInterface) {
+    public Collection<Class<?>> getClasses() {
         return Collections.emptyList();
     }
 }

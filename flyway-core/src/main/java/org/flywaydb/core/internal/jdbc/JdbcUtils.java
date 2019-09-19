@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -172,6 +172,34 @@ public class JdbcUtils {
             return databaseProductName + " " + databaseMajorVersion + "." + databaseMinorVersion;
         } catch (SQLException e) {
             throw new FlywaySqlException("Error while determining database product name", e);
+        }
+    }
+
+    /**
+     * Retrieves the version of the database product.
+     *
+     * @param databaseMetaData The connection metadata to use to query the database.
+     * @return The version of the database product. Ex.: MariaDB 10.3, ...
+     */
+    public static String getDatabaseProductVersion(DatabaseMetaData databaseMetaData) {
+        try {
+            return databaseMetaData.getDatabaseProductVersion();
+        } catch (SQLException e) {
+            throw new FlywaySqlException("Error while determining database product version", e);
+        }
+    }
+
+    /**
+     * Retrieves the name of the database driver.
+     *
+     * @param databaseMetaData The connection metadata to use to query the database.
+     * @return The name of the database driver. Ex.: MariaDB JDBC driver, ...
+     */
+    public static String getDriverName(DatabaseMetaData databaseMetaData) {
+        try {
+            return databaseMetaData.getDriverName();
+        } catch (SQLException e) {
+            throw new FlywaySqlException("Error while determining database driver name", e);
         }
     }
 }

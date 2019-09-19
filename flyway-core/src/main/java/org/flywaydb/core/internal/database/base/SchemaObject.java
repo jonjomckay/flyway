@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import java.sql.SQLException;
 /**
  * An object within a database schema.
  */
-public abstract class SchemaObject {
+public abstract class SchemaObject<D extends Database, S extends Schema> {
     /**
      * The Jdbc Template for communicating with the DB.
      */
@@ -32,12 +32,12 @@ public abstract class SchemaObject {
     /**
      * The database-specific support.
      */
-    protected final Database database;
+    protected final D database;
 
     /**
      * The schema this table lives in.
      */
-    protected final Schema schema;
+    protected final S schema;
 
     /**
      * The name of the table.
@@ -52,7 +52,7 @@ public abstract class SchemaObject {
      * @param schema       The schema the object lives in.
      * @param name         The name of the object.
      */
-    SchemaObject(JdbcTemplate jdbcTemplate, Database database, Schema schema, String name) {
+    SchemaObject(JdbcTemplate jdbcTemplate, D database, S schema, String name) {
         this.name = name;
         this.jdbcTemplate = jdbcTemplate;
         this.database = database;
@@ -62,7 +62,7 @@ public abstract class SchemaObject {
     /**
      * @return The schema this object lives in.
      */
-    public final Schema getSchema() {
+    public final S getSchema() {
         return schema;
     }
 

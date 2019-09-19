@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Boxfuse GmbH
+ * Copyright 2010-2019 Boxfuse GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ import static org.flywaydb.core.internal.configuration.ConfigUtils.putIfSet;
 /**
  * Common base class for all mojos with all common attributes.
  */
-@SuppressWarnings({"JavaDoc", "FieldCanBeLocal", "UnusedDeclaration"})
+@SuppressWarnings({"FieldCanBeLocal", "UnusedDeclaration"})
 abstract class AbstractFlywayMojo extends AbstractMojo {
     private static final String CONFIG_WORKING_DIRECTORY = "flyway.workingDirectory";
     private static final String CONFIG_SERVER_ID = "flyway.serverId";
@@ -62,7 +62,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     Log log;
 
     /**
-     * Whether to skip the execution of the Maven Plugin for this module.<br/>
+     * Whether to skip the execution of the Maven Plugin for this module.
      * <p>Also configurable with Maven or System Property: ${flyway.skip}</p>
      */
     @Parameter(property = CONFIG_SKIP)
@@ -116,13 +116,14 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     private String initSql;
 
     /**
-     * List of the schemas managed by Flyway. These schema names are case-sensitive.<br/>
-     * (default: The default schema for the datasource connection)
+     * The schemas managed by Flyway. These schema names are case-sensitive. (default: The default schema for the database connection)
      * <p>Consequences:</p>
      * <ul>
+     * <li>Flyway will automatically attempt to create all these schemas, unless the first one already exists.</li>
      * <li>The first schema in the list will be automatically set as the default one during the migration.</li>
      * <li>The first schema in the list will also be the one containing the schema history table.</li>
      * <li>The schemas will be cleaned in the order of this list.</li>
+     * <li>If Flyway created them, the schemas themselves will as be dropped when cleaning.</li>
      * </ul>
      * <p>Also configurable with Maven or System Property: ${flyway.schemas} (comma-separated list)</p>
      */
@@ -139,6 +140,15 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
      */
     @Parameter(property = ConfigUtils.TABLE)
     private String table;
+
+    /**
+     * <p>The tablespace where to create the schema history table that will be used by Flyway.</p>
+     * <p>This setting is only relevant for databases that do support the notion of tablespaces. It's value is simply
+     * ignored for all others.</p> (default: The default tablespace for the database connection)
+     * <p>Also configurable with Maven or System Property: ${flyway.tablespace}</p>
+     */
+    @Parameter(property = ConfigUtils.TABLESPACE)
+    private String tablespace;
 
     /**
      * The version to tag an existing schema with when executing baseline. (default: 1)<br/>
@@ -233,19 +243,6 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     private String sqlMigrationSeparator;
 
     /**
-     * The file name suffix for Sql migrations (default: .sql) <p>Also configurable with Maven or System Property:
-     * ${flyway.sqlMigrationSuffix}</p>
-     * <p>
-     * <p>Sql migrations have the following file name structure: prefixVERSIONseparatorDESCRIPTIONsuffix ,
-     * which using the defaults translates to V1_1__My_description.sql</p>
-     *
-     * @deprecated Use {@link AbstractFlywayMojo#sqlMigrationSuffixes} instead. Will be removed in Flyway 6.0.0.
-     */
-    @Parameter(property = ConfigUtils.SQL_MIGRATION_SUFFIX)
-    @Deprecated
-    private String sqlMigrationSuffix;
-
-    /**
      * The file name suffixes for SQL migrations. (default: .sql)
      * <p>SQL migrations have the following file name structure: prefixVERSIONseparatorDESCRIPTIONsuffix ,
      * which using the defaults translates to V1_1__My_description.sql</p>
@@ -258,7 +255,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
 
     /**
      * Whether to automatically call clean or not when a validation error occurs. (default: {@code false})<br/>
-     * <p> This is exclusively intended as a convenience for development. Even tough we
+     * <p> This is exclusively intended as a convenience for development. even though we
      * strongly recommend not to change migration scripts once they have been checked into SCM and run, this provides a
      * way of dealing with this case in a smooth manner. The database will be wiped clean automatically, ensuring that
      * the next migration will bring you back to the state checked into SCM.</p>
@@ -278,8 +275,13 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
 
     /**
      * The target version up to which Flyway should consider migrations.
-     * Migrations with a higher version number will be ignored.
-     * The special value {@code current} designates the current version of the schema. (default: the latest version)
+     * Migrations with a higher version number will be ignored. 
+     * Special values:
+     * <ul>
+     * <li>{@code current}: designates the current version of the schema</li>
+     * <li>{@code latest}: the latest version of the schema, as defined by the migration with the highest version</li>
+     * </ul>
+     * Defaults to {@code latest}.
      * <p>Also configurable with Maven or System Property: ${flyway.target}</p>
      */
     @Parameter(property = ConfigUtils.TARGET)
@@ -293,6 +295,14 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
      */
     @Parameter(property = ConfigUtils.OUT_OF_ORDER)
     private Boolean outOfOrder;
+
+    /**
+     * Whether Flyway should output a table with the results of queries when executing migrations (default: true).
+     * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
+     * <p>Also configurable with Maven or System Property: ${flyway.outputQueryResults}</p>
+     */
+    @Parameter(property = ConfigUtils.OUTPUT_QUERY_RESULTS)
+    private Boolean outputQueryResults;
 
     /**
      * Ignore missing migrations when reading the schema history table. These are migrations that were performed by an
@@ -357,6 +367,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
      * <p/>
      * <p>Also configurable with Maven or System Properties like ${flyway.placeholders.myplaceholder} or ${flyway.placeholders.otherone}</p>
      */
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
     @Parameter
     private Map<String, String> placeholders;
 
@@ -415,8 +426,14 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     private Boolean validateOnMigrate;
 
     /**
-     * Whether to allow mixing transactional and non-transactional statements within the same migration.
-     * <p>
+     * Whether to allow mixing transactional and non-transactional statements within the same migration. Enabling this
+     * automatically causes the entire affected migration to be run without a transaction.
+     *
+     * <p>Note that this is only applicable for PostgreSQL, Aurora PostgreSQL, SQL Server and SQLite which all have
+     * statements that do not run at all within a transaction.</p>
+     * <p>This is not to be confused with implicit transaction, as they occur in MySQL or Oracle, where even though a
+     * DDL statement was run within within a transaction, the database will issue an implicit commit before and after
+     * its execution.</p>
      * {@code true} if mixed migrations should be allowed. {@code false} if an error should be thrown instead. (default: {@code false})
      * <p>Also configurable with Maven or System Property: ${flyway.mixed}</p>
      */
@@ -440,30 +457,29 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     private String installedBy;
 
     /**
-     * The fully qualified class names of handlers for errors and warnings that occur during a migration. This can be
-     * used to customize Flyway's behavior by for example
-     * throwing another runtime exception, outputting a warning or suppressing the error instead of throwing a FlywayException.
-     * ErrorHandlers are invoked in order until one reports to have successfully handled the errors or warnings.
-     * If none do, or if none are present, Flyway falls back to its default handling of errors and warnings.
-     * (default: none)
-     * <p>Also configurable with Maven or System Property: ${flyway.errorHandlers}</p>
-     * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
-     *
-     * @deprecated ErrorHandlers have been deprecated and will be removed in Flyway 6.0 use statement-level callbacks instead.
-     */
-    @Deprecated
-    @Parameter
-    private String[] errorHandlers;
-
-    /**
-     * Rules for the built-in error handler that lets you override specific SQL states and errors codes from error
-     * to warning or from warning to error. (default: none)
+     * Rules for the built-in error handler that let you override specific SQL states and errors codes in order to force
+     * specific errors or warnings to be treated as debug messages, info messages, warnings or errors.
      * <p>Each error override has the following format: {@code STATE:12345:W}.
-     * It is a 5 character SQL state, a colon, the SQL error code, a colon and finally the desired
-     * behavior that should override the initial one. The following behaviors are accepted: {@code W} to force a warning
-     * and {@code E} to force an error.</p>
-     * <p>For example, to force Oracle stored procedure compilation issues to produce
+     * It is a 5 character SQL state (or * to match all SQL states), a colon,
+     * the SQL error code (or * to match all SQL error codes), a colon and finally
+     * the desired behavior that should override the initial one.</p>
+     * <p>The following behaviors are accepted:</p>
+     * <ul>
+     * <li>{@code D} to force a debug message</li>
+     * <li>{@code D-} to force a debug message, but do not show the original sql state and error code</li>
+     * <li>{@code I} to force an info message</li>
+     * <li>{@code I-} to force an info message, but do not show the original sql state and error code</li>
+     * <li>{@code W} to force a warning</li>
+     * <li>{@code W-} to force a warning, but do not show the original sql state and error code</li>
+     * <li>{@code E} to force an error</li>
+     * <li>{@code E-} to force an error, but do not show the original sql state and error code</li>
+     * </ul>
+     * <p>Example 1: to force Oracle stored procedure compilation issues to produce
      * errors instead of warnings, the following errorOverride can be used: {@code 99999:17110:E}</p>
+     * <p>Example 2: to force SQL Server PRINT messages to be displayed as info messages (without SQL state and error
+     * code details) instead of warnings, the following errorOverride can be used: {@code S0001:0:I-}</p>
+     * <p>Example 3: to force all errors with SQL error code 123 to be treated as warnings instead,
+     * the following errorOverride can be used: {@code *:123:W}</p>
      * <p>Also configurable with Maven or System Property: ${flyway.errorOverrides}</p>
      * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
      */
@@ -514,23 +530,23 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     private Boolean oracleSqlplus;
 
     /**
-     * Flyway's license key.
+     * Whether Flyway should issue a warning instead of an error whenever it encounters an Oracle SQL*Plus statement
+     * it doesn't yet support. (default: {@code false})
+     * <p>Also configurable with Maven or System Property: ${flyway.oracle.sqlplusWarn}</p>
+     * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
+     */
+    @Parameter(property = ConfigUtils.ORACLE_SQLPLUS_WARN)
+    private Boolean oracleSqlplusWarn;
+
+    /**
+     * Your Flyway license key (FL01...). Not yet a Flyway Pro or Enterprise Edition customer?
+     * Request your <a href="https://flywaydb.org/download/">Flyway trial license key</a>
+     * to try out Flyway Pro and Enterprise Edition features free for 30 days.
      * <p>Also configurable with Maven or System Property: ${flyway.licenseKey}</p>
      * <p><i>Flyway Pro and Flyway Enterprise only</i></p>
      */
     @Parameter(property = ConfigUtils.LICENSE_KEY)
     private String licenseKey;
-
-    /**
-     * Properties file from which to load the Flyway configuration. The names of the individual properties match the ones you would
-     * use as Maven or System properties. The encoding of the file must be the same as the encoding defined with the
-     * {@code flyway.encoding) property, which is UTF-8 by default. Relative paths are relative to the POM. (default: flyway.properties)
-     * <p/>
-     * <p>Also configurable with Maven or System Property: ${flyway.configFile}</p>
-     */
-    @Deprecated
-    @Parameter(property = ConfigUtils.CONFIG_FILE)
-    private File configFile;
 
     /**
      * The encoding of the external config files specified with the {@code flyway.configFiles} property. (default: UTF-8).
@@ -548,6 +564,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
      * <p/>
      * <p>Also configurable with Maven or System Property: ${flyway.configFiles}</p>
      */
+    @Parameter(property = ConfigUtils.CONFIG_FILES)
     private File[] configFiles;
 
     /**
@@ -617,7 +634,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
     /* private -> for testing */ boolean getBooleanProperty(String systemPropertyName, boolean mavenPropertyValue) {
         String systemPropertyValue = System.getProperty(systemPropertyName);
         if (systemPropertyValue != null) {
-            return Boolean.getBoolean(systemPropertyName);
+            return Boolean.parseBoolean(systemPropertyValue);
         }
         return mavenPropertyValue;
     }
@@ -674,6 +691,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             putIfSet(conf, ConfigUtils.INIT_SQL, initSql);
             putArrayIfSet(conf, ConfigUtils.SCHEMAS, schemas);
             putIfSet(conf, ConfigUtils.TABLE, table);
+            putIfSet(conf, ConfigUtils.TABLESPACE, tablespace);
             putIfSet(conf, ConfigUtils.BASELINE_VERSION, baselineVersion);
             putIfSet(conf, ConfigUtils.BASELINE_DESCRIPTION, baselineDescription);
             putArrayIfSet(conf, ConfigUtils.LOCATIONS, locations);
@@ -686,7 +704,6 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             putIfSet(conf, ConfigUtils.UNDO_SQL_MIGRATION_PREFIX, undoSqlMigrationPrefix);
             putIfSet(conf, ConfigUtils.REPEATABLE_SQL_MIGRATION_PREFIX, repeatableSqlMigrationPrefix);
             putIfSet(conf, ConfigUtils.SQL_MIGRATION_SEPARATOR, sqlMigrationSeparator);
-            putIfSet(conf, ConfigUtils.SQL_MIGRATION_SUFFIX, sqlMigrationSuffix);
             putArrayIfSet(conf, ConfigUtils.SQL_MIGRATION_SUFFIXES, sqlMigrationSuffixes);
             putIfSet(conf, ConfigUtils.MIXED, mixed);
             putIfSet(conf, ConfigUtils.GROUP, group);
@@ -694,6 +711,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             putIfSet(conf, ConfigUtils.CLEAN_ON_VALIDATION_ERROR, cleanOnValidationError);
             putIfSet(conf, ConfigUtils.CLEAN_DISABLED, cleanDisabled);
             putIfSet(conf, ConfigUtils.OUT_OF_ORDER, outOfOrder);
+            putIfSet(conf, ConfigUtils.OUTPUT_QUERY_RESULTS, outputQueryResults);
             putIfSet(conf, ConfigUtils.TARGET, target);
             putIfSet(conf, ConfigUtils.IGNORE_MISSING_MIGRATIONS, ignoreMissingMigrations);
             putIfSet(conf, ConfigUtils.IGNORE_IGNORED_MIGRATIONS, ignoreIgnoredMigrations);
@@ -706,13 +724,13 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             putIfSet(conf, ConfigUtils.VALIDATE_ON_MIGRATE, validateOnMigrate);
             putIfSet(conf, ConfigUtils.DRIVER, driver);
 
-            putArrayIfSet(conf, ConfigUtils.ERROR_HANDLERS, errorHandlers);
             putArrayIfSet(conf, ConfigUtils.ERROR_OVERRIDES, errorOverrides);
             putIfSet(conf, ConfigUtils.DRYRUN_OUTPUT, dryRunOutput);
             putIfSet(conf, ConfigUtils.STREAM, stream);
             putIfSet(conf, ConfigUtils.BATCH, batch);
 
             putIfSet(conf, ConfigUtils.ORACLE_SQLPLUS, oracleSqlplus);
+            putIfSet(conf, ConfigUtils.ORACLE_SQLPLUS_WARN, oracleSqlplusWarn);
 
             putIfSet(conf, ConfigUtils.LICENSE_KEY, licenseKey);
 
@@ -729,7 +747,7 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             conf.putAll(ConfigUtils.propertiesToMap(System.getProperties()));
             removeMavenPluginSpecificPropertiesToAvoidWarnings(conf);
 
-            Flyway flyway = Flyway.configure(classLoader).configure(conf).load();
+            Flyway flyway = Flyway.configure(classLoader).configuration(conf).load();
             doExecute(flyway);
         } catch (Exception e) {
             throw new MojoExecutionException(e.toString(), ExceptionUtils.getRootCause(e));
@@ -753,11 +771,6 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             return configFiles;
         }
 
-        if (System.getProperties().containsKey(ConfigUtils.CONFIG_FILE)) {
-            log.warn(ConfigUtils.CONFIG_FILE + " is deprecated and will be removed in Flyway 6.0. Use " + ConfigUtils.CONFIG_FILES + " instead.");
-            configFiles.add(toFile(workDir, System.getProperties().getProperty(ConfigUtils.CONFIG_FILE)));
-            return configFiles;
-        }
         if (System.getProperties().containsKey(ConfigUtils.CONFIG_FILES)) {
             for (String file : StringUtils.tokenizeToStringArray(System.getProperties().getProperty(ConfigUtils.CONFIG_FILES), ",")) {
                 configFiles.add(toFile(workDir, file));
@@ -765,12 +778,6 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
             return configFiles;
         }
 
-        if (mavenProject.getProperties().containsKey(ConfigUtils.CONFIG_FILE)) {
-            log.warn(ConfigUtils.CONFIG_FILE + " is deprecated and will be removed in Flyway 6.0. Use " + ConfigUtils.CONFIG_FILES + " instead.");
-            configFiles.add(toFile(workDir, mavenProject.getProperties().getProperty(ConfigUtils.CONFIG_FILE)));
-        } else if (configFile != null) {
-            configFiles.add(configFile);
-        }
         if (mavenProject.getProperties().containsKey(ConfigUtils.CONFIG_FILES)) {
             for (String file : StringUtils.tokenizeToStringArray(mavenProject.getProperties().getProperty(ConfigUtils.CONFIG_FILES), ",")) {
                 configFiles.add(toFile(workDir, file));
@@ -821,7 +828,6 @@ abstract class AbstractFlywayMojo extends AbstractMojo {
      * @param conf The properties to filter.
      */
     private static void removeMavenPluginSpecificPropertiesToAvoidWarnings(Map<String, String> conf) {
-        conf.remove(ConfigUtils.CONFIG_FILE);
         conf.remove(ConfigUtils.CONFIG_FILES);
         conf.remove(ConfigUtils.CONFIG_FILE_ENCODING);
         conf.remove(CONFIG_CURRENT);
